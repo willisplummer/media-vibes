@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"media/database"
+	"media/models"
 	"media/repository"
 	"media/services"
 
@@ -141,10 +143,38 @@ func (app *App) getMovieByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (app *App) createMovieHandler(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-	if _, err := w.Write([]byte("Not implemented")); err != nil {
-		log.Printf("Failed to write response: %v", err)
+func (app *App) createMovieHandler(w http.ResponseWriter, r *http.Request) {
+	var movie models.Movie
+	
+	// Decode the request body
+	if err := json.NewDecoder(r.Body).Decode(&movie); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	
+	// Validate required fields
+	if strings.TrimSpace(movie.Title) == "" {
+		http.Error(w, "Title is required", http.StatusBadRequest)
+		return
+	}
+	
+	// Set default status if not provided
+	if movie.Status == "" {
+		movie.Status = models.StatusWanted
+	}
+	
+	// Create the movie
+	if err := app.movieRepo.Create(&movie); err != nil {
+		log.Printf("Error creating movie: %v", err)
+		http.Error(w, "Failed to create movie", http.StatusInternalServerError)
+		return
+	}
+	
+	// Return the created movie
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(movie); err != nil {
+		log.Printf("Error encoding movie response: %v", err)
 	}
 }
 
