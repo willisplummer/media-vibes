@@ -1,0 +1,253 @@
+// Package main provides the main entry point for the media management application.
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"time"
+
+	"media/database"
+	"media/repository"
+	"media/services"
+
+	"github.com/gorilla/mux"
+)
+
+// App represents the application with its dependencies
+type App struct {
+	movieRepo   *repository.MovieRepository
+	tmdbService *services.TMDBService
+}
+
+func main() {
+	// Initialize database
+	db, err := database.NewDB("media.db")
+	if err != nil {
+		log.Fatal("Failed to connect to database:", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("Failed to close database: %v", err)
+		}
+	}()
+
+	// Initialize schema
+	if err := db.InitSchema(); err != nil {
+		log.Fatal("Failed to initialize schema:", err)
+	}
+
+	// Initialize repositories
+	movieRepo := repository.NewMovieRepository(db)
+
+	// Initialize TMDB service
+	tmdbAPIKey := os.Getenv("TMDB_API_KEY")
+	if tmdbAPIKey == "" {
+		log.Fatal("TMDB_API_KEY environment variable is required")
+	}
+	tmdbService := services.NewTMDBService(tmdbAPIKey)
+
+	app := &App{
+		movieRepo:   movieRepo,
+		tmdbService: tmdbService,
+	}
+
+	r := mux.NewRouter()
+
+	// Health check endpoint
+	r.HandleFunc("/health", healthHandler).Methods("GET")
+
+	// API routes
+	api := r.PathPrefix("/api/v1").Subrouter()
+
+	// Movie endpoints
+	api.HandleFunc("/movies", app.getMoviesHandler).Methods("GET")
+	api.HandleFunc("/movies/{id}", app.getMovieByIDHandler).Methods("GET")
+	api.HandleFunc("/movies", app.createMovieHandler).Methods("POST")
+	api.HandleFunc("/movies/tmdb/{tmdb_id}", app.addMovieFromTMDBHandler).Methods("POST")
+
+	// Generic media endpoints (still stubbed)
+	api.HandleFunc("/media", getMediaHandler).Methods("GET")
+	api.HandleFunc("/media", createMediaHandler).Methods("POST")
+	api.HandleFunc("/media/{id}", getMediaByIDHandler).Methods("GET")
+	api.HandleFunc("/media/{id}", updateMediaHandler).Methods("PUT")
+	api.HandleFunc("/media/{id}", deleteMediaHandler).Methods("DELETE")
+
+	// Search and release endpoints
+	api.HandleFunc("/search", searchHandler).Methods("GET")
+	api.HandleFunc("/releases", getReleasesHandler).Methods("GET")
+	api.HandleFunc("/download", requestDownloadHandler).Methods("POST")
+
+	log.Println("Server starting on :8080")
+	server := &http.Server{
+		Addr:         ":8080",
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+	log.Fatal(server.ListenAndServe())
+}
+
+func healthHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte("OK")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}
+
+func (app *App) getMoviesHandler(w http.ResponseWriter, _ *http.Request) {
+	movies, err := app.movieRepo.GetAll()
+	if err != nil {
+		log.Printf("Error getting movies: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(movies); err != nil {
+		log.Printf("Error encoding movies: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (app *App) getMovieByIDHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	// Parse ID (simplified for now)
+	var movieID int
+	if _, err := fmt.Sscanf(id, "%d", &movieID); err != nil {
+		http.Error(w, "Invalid movie ID", http.StatusBadRequest)
+		return
+	}
+
+	movie, err := app.movieRepo.GetByID(movieID)
+	if err != nil {
+		log.Printf("Error getting movie by ID: %v", err)
+		http.Error(w, "Movie not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(movie); err != nil {
+		log.Printf("Error encoding movie: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (app *App) createMovieHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+	if _, err := w.Write([]byte("Not implemented")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}
+
+func (app *App) addMovieFromTMDBHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	tmdbIDStr := vars["tmdb_id"]
+
+	tmdbID, err := strconv.Atoi(tmdbIDStr)
+	if err != nil {
+		http.Error(w, "Invalid TMDB ID", http.StatusBadRequest)
+		return
+	}
+
+	// Check if movie already exists
+	movies, err := app.movieRepo.GetAll()
+	if err != nil {
+		log.Printf("Error checking existing movies: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	for _, movie := range movies {
+		if movie.TMDBID == tmdbID {
+			http.Error(w, "Movie already exists in library", http.StatusConflict)
+			return
+		}
+	}
+
+	// Fetch movie data from TMDB
+	movie, err := app.tmdbService.GetMovie(tmdbID)
+	if err != nil {
+		log.Printf("Error fetching movie from TMDB: %v", err)
+		http.Error(w, "Failed to fetch movie from TMDB", http.StatusBadRequest)
+		return
+	}
+
+	// Save movie to database
+	if err := app.movieRepo.Create(movie); err != nil {
+		log.Printf("Error creating movie: %v", err)
+		http.Error(w, "Failed to save movie", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(movie); err != nil {
+		log.Printf("Error encoding movie response: %v", err)
+	}
+}
+
+// Generic media handlers (still stubbed)
+func getMediaHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+	if _, err := w.Write([]byte("Not implemented")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}
+
+func createMediaHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+	if _, err := w.Write([]byte("Not implemented")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}
+
+func getMediaByIDHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+	if _, err := w.Write([]byte("Not implemented")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}
+
+func updateMediaHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+	if _, err := w.Write([]byte("Not implemented")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}
+
+func deleteMediaHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+	if _, err := w.Write([]byte("Not implemented")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}
+
+func searchHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+	if _, err := w.Write([]byte("Not implemented")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}
+
+func getReleasesHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+	if _, err := w.Write([]byte("Not implemented")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}
+
+func requestDownloadHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+	if _, err := w.Write([]byte("Not implemented")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
+}

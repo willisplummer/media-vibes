@@ -1,0 +1,55 @@
+linters:
+  enable:
+    - gofmt
+    - goimports
+    - govet
+    - errcheck
+    - staticcheck
+    - gosimple
+    - ineffassign
+    - unused
+    - misspell
+    - revive
+    - gosec
+    - unconvert
+    - goconst
+    - gocyclo
+    - gocognit
+    - dupl
+    - lll
+
+linters-settings:
+  gofmt:
+    simplify: true
+  goimports:
+    local-prefixes: media
+  govet:
+    enable:
+      - shadow
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  gocyclo:
+    min-complexity: 15
+  gocognit:
+    min-complexity: 20
+  dupl:
+    threshold: 100
+  lll:
+    line-length: 120
+  misspell:
+    locale: US
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
