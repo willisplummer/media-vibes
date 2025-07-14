@@ -19,6 +19,7 @@ type Movie struct {
 	FilePath    string      `json:"file_path,omitempty"`
 	FileSize    int64       `json:"file_size,omitempty"`
 	Quality     string      `json:"quality,omitempty"` // 1080p, 4K, etc.
+	TorrentHash string      `json:"torrent_hash,omitempty"` // qBittorrent info hash
 	CreatedAt   time.Time   `json:"created_at"`
 	UpdatedAt   time.Time   `json:"updated_at"`
 }

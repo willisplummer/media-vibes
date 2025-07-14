@@ -23,11 +23,13 @@ type MediaStatus string
 // Media status constants
 const (
 	StatusWanted      MediaStatus = "wanted"
+	StatusSearching   MediaStatus = "searching"
+	StatusNotFound    MediaStatus = "not_found" // No torrents found, can retry
 	StatusDownloading MediaStatus = "downloading"
 	StatusDownloaded  MediaStatus = "downloaded"
 	StatusProcessing  MediaStatus = "processing"
 	StatusReady       MediaStatus = "ready"
-	StatusFailed      MediaStatus = "failed"
+	StatusFailed      MediaStatus = "failed" // Permanent failure
 )
 
 // Media represents a generic media item

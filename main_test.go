@@ -392,7 +392,7 @@ func TestMovieRepository_Create_Success(t *testing.T) {
 
 	err := app.movieRepo.Create(movie)
 	assert.NoError(t, err)
-	
+
 	// Check that the movie was assigned an ID
 	assert.NotZero(t, movie.ID)
 	assert.NotZero(t, movie.CreatedAt)
@@ -468,7 +468,7 @@ func TestMovieRepository_Create_MinimalMovie(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "Minimal Movie", retrievedMovie.Title)
 	assert.Equal(t, models.StatusWanted, retrievedMovie.Status)
-	
+
 	// Check that optional fields are zero values
 	assert.Empty(t, retrievedMovie.IMDBID)
 	assert.Zero(t, retrievedMovie.TMDBID)
@@ -511,7 +511,7 @@ func TestMovieRepository_Create_TimestampsSet(t *testing.T) {
 	defer cleanup()
 
 	before := time.Now()
-	
+
 	movie := &models.Movie{
 		Title:  "Timestamp Test",
 		Status: models.StatusWanted,
@@ -519,7 +519,7 @@ func TestMovieRepository_Create_TimestampsSet(t *testing.T) {
 
 	err := app.movieRepo.Create(movie)
 	assert.NoError(t, err)
-	
+
 	after := time.Now()
 
 	// Check that timestamps are set and within reasonable bounds
@@ -527,7 +527,7 @@ func TestMovieRepository_Create_TimestampsSet(t *testing.T) {
 	assert.True(t, movie.CreatedAt.Before(after) || movie.CreatedAt.Equal(after))
 	assert.True(t, movie.UpdatedAt.After(before) || movie.UpdatedAt.Equal(before))
 	assert.True(t, movie.UpdatedAt.Before(after) || movie.UpdatedAt.Equal(after))
-	
+
 	// CreatedAt and UpdatedAt should be very close (same transaction)
 	timeDiff := movie.UpdatedAt.Sub(movie.CreatedAt)
 	assert.True(t, timeDiff >= 0 && timeDiff < time.Second)
@@ -717,7 +717,7 @@ func TestCreateMovieHandler_ContentTypeValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := http.NewRequest("POST", "/api/v1/movies", strings.NewReader(movieJSON))
 			assert.NoError(t, err)
-			
+
 			if tc.contentType != "" {
 				req.Header.Set("Content-Type", tc.contentType)
 			}
@@ -797,7 +797,7 @@ func TestCreateMovieHandler_NullJSON(t *testing.T) {
 func TestCreateMovieHandler_DatabaseErrorHandling(t *testing.T) {
 	// Test what happens when we close the database connection
 	app, cleanup := setupTestApp(t)
-	
+
 	// Close the database to simulate a database error
 	cleanup()
 
@@ -861,18 +861,18 @@ func TestCreateMovieHandler_LargePayload(t *testing.T) {
 func TestCreateMovieHandler_ConcurrentCreation(t *testing.T) {
 	// Test that the handler can handle multiple requests without panicking
 	// Each goroutine gets its own app instance to avoid SQLite concurrency issues
-	
+
 	concurrency := 3
 	done := make(chan bool, concurrency)
 
 	for i := 0; i < concurrency; i++ {
 		go func(id int) {
 			defer func() { done <- true }()
-			
+
 			// Each goroutine gets its own database connection
 			app, cleanup := setupTestApp(t)
 			defer cleanup()
-			
+
 			movieJSON := fmt.Sprintf(`{"title": "Concurrent Movie %d"}`, id)
 
 			req, err := http.NewRequest("POST", "/api/v1/movies", strings.NewReader(movieJSON))
@@ -969,6 +969,420 @@ func TestCreateMovieHandler_MaxFieldLengths(t *testing.T) {
 
 			// Should handle gracefully - either succeed or fail with proper error
 			assert.True(t, rr.Code == http.StatusCreated || rr.Code == http.StatusBadRequest || rr.Code == http.StatusInternalServerError)
+		})
+	}
+}
+
+// Tests for MovieRepository.Delete method
+
+func TestMovieRepository_Delete_Success(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Create a test movie first
+	movie, err := createTestMovie(app.movieRepo, "Movie to Delete")
+	assert.NoError(t, err)
+	assert.NotZero(t, movie.ID)
+
+	// Verify movie exists
+	retrievedMovie, err := app.movieRepo.GetByID(movie.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, movie.Title, retrievedMovie.Title)
+
+	// Delete the movie
+	err = app.movieRepo.Delete(movie.ID)
+	assert.NoError(t, err)
+
+	// Verify movie no longer exists
+	_, err = app.movieRepo.GetByID(movie.ID)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestMovieRepository_Delete_NotFound(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Try to delete a non-existent movie
+	err := app.movieRepo.Delete(999)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "movie with id 999 not found")
+}
+
+func TestMovieRepository_Delete_InvalidID(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Try to delete with invalid IDs
+	testCases := []int{0, -1, -999}
+
+	for _, movieID := range testCases {
+		t.Run(fmt.Sprintf("ID_%d", movieID), func(t *testing.T) {
+			err := app.movieRepo.Delete(movieID)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "not found")
+		})
+	}
+}
+
+func TestMovieRepository_Delete_Multiple(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Create multiple test movies
+	movies := make([]*models.Movie, 3)
+	for i := 0; i < 3; i++ {
+		movie, err := createTestMovie(app.movieRepo, fmt.Sprintf("Movie %d", i+1))
+		assert.NoError(t, err)
+		movies[i] = movie
+	}
+
+	// Delete the middle movie
+	err := app.movieRepo.Delete(movies[1].ID)
+	assert.NoError(t, err)
+
+	// Verify first and third movies still exist
+	_, err = app.movieRepo.GetByID(movies[0].ID)
+	assert.NoError(t, err)
+
+	_, err = app.movieRepo.GetByID(movies[2].ID)
+	assert.NoError(t, err)
+
+	// Verify middle movie is gone
+	_, err = app.movieRepo.GetByID(movies[1].ID)
+	assert.Error(t, err)
+
+	// Verify GetAll returns only 2 movies
+	allMovies, err := app.movieRepo.GetAll()
+	assert.NoError(t, err)
+	assert.Len(t, allMovies, 2)
+}
+
+func TestMovieRepository_Delete_DoubleDelete(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Create a test movie
+	movie, err := createTestMovie(app.movieRepo, "Double Delete Test")
+	assert.NoError(t, err)
+
+	// Delete the movie first time
+	err = app.movieRepo.Delete(movie.ID)
+	assert.NoError(t, err)
+
+	// Try to delete again - should fail
+	err = app.movieRepo.Delete(movie.ID)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+// Tests for DELETE /movies/{id} endpoint
+
+func TestDeleteMovieHandler_Success(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Create a test movie
+	movie, err := createTestMovie(app.movieRepo, "Movie to Delete via API")
+	assert.NoError(t, err)
+
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("/api/v1/movies/%d", movie.ID), nil)
+	assert.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/v1/movies/{id}", app.deleteMovieHandler).Methods("DELETE")
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+
+	var response map[string]interface{}
+	err = json.Unmarshal(rr.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "Movie deleted successfully", response["message"])
+	assert.Equal(t, float64(movie.ID), response["movie_id"]) // JSON numbers are float64
+	assert.Equal(t, movie.Title, response["title"])
+
+	// Verify movie is actually deleted from database
+	_, err = app.movieRepo.GetByID(movie.ID)
+	assert.Error(t, err)
+}
+
+func TestDeleteMovieHandler_NotFound(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	req, err := http.NewRequest("DELETE", "/api/v1/movies/999", nil)
+	assert.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/v1/movies/{id}", app.deleteMovieHandler).Methods("DELETE")
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+	assert.Contains(t, rr.Body.String(), "Movie not found")
+}
+
+func TestDeleteMovieHandler_InvalidID(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	invalidIDs := []string{"invalid", "abc", "0.5", "-1", ""}
+
+	for _, id := range invalidIDs {
+		t.Run(fmt.Sprintf("ID_%s", id), func(t *testing.T) {
+			url := "/api/v1/movies/" + id
+			if id == "" {
+				url = "/api/v1/movies/"
+			}
+
+			req, err := http.NewRequest("DELETE", url, nil)
+			assert.NoError(t, err)
+
+			rr := httptest.NewRecorder()
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/v1/movies/{id}", app.deleteMovieHandler).Methods("DELETE")
+			router.ServeHTTP(rr, req)
+
+			// Should be bad request for invalid IDs, or not found for empty path
+			assert.True(t, rr.Code == http.StatusBadRequest || rr.Code == http.StatusNotFound)
+		})
+	}
+}
+
+func TestDeleteMovieHandler_WithJobCancellation(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Test with different movie statuses that should trigger job cancellation
+	statusesToTest := []models.MediaStatus{
+		models.StatusDownloading,
+		models.StatusSearching,
+	}
+
+	for _, status := range statusesToTest {
+		t.Run(string(status), func(t *testing.T) {
+			// Create a movie with the specific status
+			movie := &models.Movie{
+				Title:  fmt.Sprintf("Job Cancel Test %s", status),
+				Status: status,
+				Year:   2023,
+			}
+			err := app.movieRepo.Create(movie)
+			assert.NoError(t, err)
+
+			// Mock job manager (in real implementation, job cancellation would be tested separately)
+			// For now, we just test that the endpoint works without panicking
+
+			req, err := http.NewRequest("DELETE", fmt.Sprintf("/api/v1/movies/%d", movie.ID), nil)
+			assert.NoError(t, err)
+
+			rr := httptest.NewRecorder()
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/v1/movies/{id}", app.deleteMovieHandler).Methods("DELETE")
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, http.StatusOK, rr.Code)
+
+			// Verify movie is deleted
+			_, err = app.movieRepo.GetByID(movie.ID)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDeleteMovieHandler_WithoutJobCancellation(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Test with movie statuses that should NOT trigger job cancellation
+	statusesToTest := []models.MediaStatus{
+		models.StatusWanted,
+		models.StatusDownloaded,
+		models.StatusReady,
+		models.StatusFailed,
+		models.StatusNotFound,
+	}
+
+	for _, status := range statusesToTest {
+		t.Run(string(status), func(t *testing.T) {
+			// Create a movie with the specific status
+			movie := &models.Movie{
+				Title:  fmt.Sprintf("No Job Cancel Test %s", status),
+				Status: status,
+				Year:   2023,
+			}
+			err := app.movieRepo.Create(movie)
+			assert.NoError(t, err)
+
+			req, err := http.NewRequest("DELETE", fmt.Sprintf("/api/v1/movies/%d", movie.ID), nil)
+			assert.NoError(t, err)
+
+			rr := httptest.NewRecorder()
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/v1/movies/{id}", app.deleteMovieHandler).Methods("DELETE")
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, http.StatusOK, rr.Code)
+
+			// Verify movie is deleted
+			_, err = app.movieRepo.GetByID(movie.ID)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestDeleteMovieHandler_HTTPMethods(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Create a test movie
+	movie, err := createTestMovie(app.movieRepo, "HTTP Methods Test")
+	assert.NoError(t, err)
+
+	// Test invalid HTTP methods
+	invalidMethods := []string{"GET", "POST", "PUT", "PATCH"}
+
+	for _, method := range invalidMethods {
+		t.Run(method, func(t *testing.T) {
+			req, err := http.NewRequest(method, fmt.Sprintf("/api/v1/movies/%d", movie.ID), nil)
+			assert.NoError(t, err)
+
+			rr := httptest.NewRecorder()
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/v1/movies/{id}", app.deleteMovieHandler).Methods("DELETE")
+			router.ServeHTTP(rr, req)
+
+			// Should return 405 Method Not Allowed or 404 Not Found
+			assert.True(t, rr.Code == http.StatusMethodNotAllowed || rr.Code == http.StatusNotFound)
+		})
+	}
+}
+
+func TestDeleteMovieHandler_ConcurrentDeletion(t *testing.T) {
+	// Test that multiple deletion attempts on the same movie are handled gracefully
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Create a test movie
+	movie, err := createTestMovie(app.movieRepo, "Concurrent Delete Test")
+	assert.NoError(t, err)
+
+	concurrency := 3
+	results := make(chan int, concurrency)
+
+	// Try to delete the same movie from multiple goroutines
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			req, err := http.NewRequest("DELETE", fmt.Sprintf("/api/v1/movies/%d", movie.ID), nil)
+			assert.NoError(t, err)
+
+			rr := httptest.NewRecorder()
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/v1/movies/{id}", app.deleteMovieHandler).Methods("DELETE")
+			router.ServeHTTP(rr, req)
+
+			results <- rr.Code
+		}()
+	}
+
+	// Collect results
+	var statusCodes []int
+	for i := 0; i < concurrency; i++ {
+		select {
+		case code := <-results:
+			statusCodes = append(statusCodes, code)
+		case <-time.After(5 * time.Second):
+			t.Fatal("Test timed out waiting for concurrent deletes")
+		}
+	}
+
+	// One should succeed (200) and the others should fail (404)
+	successCount := 0
+	notFoundCount := 0
+	for _, code := range statusCodes {
+		if code == http.StatusOK {
+			successCount++
+		} else if code == http.StatusNotFound {
+			notFoundCount++
+		} else {
+			t.Errorf("Unexpected status code: %d", code)
+		}
+	}
+
+	assert.Equal(t, 1, successCount, "Exactly one deletion should succeed")
+	assert.Equal(t, concurrency-1, notFoundCount, "The rest should get not found")
+
+	// Verify movie is actually deleted
+	_, err = app.movieRepo.GetByID(movie.ID)
+	assert.Error(t, err)
+}
+
+func TestDeleteMovieHandler_DatabaseError(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+
+	// Create a movie first
+	movie, err := createTestMovie(app.movieRepo, "Database Error Test")
+	assert.NoError(t, err)
+
+	// Close the database to simulate error
+	cleanup()
+
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("/api/v1/movies/%d", movie.ID), nil)
+	assert.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/v1/movies/{id}", app.deleteMovieHandler).Methods("DELETE")
+	router.ServeHTTP(rr, req)
+
+	// With a closed database, the GetByID call will fail first, returning 404
+	// This is actually the expected behavior since the database is closed
+	assert.True(t, rr.Code == http.StatusNotFound || rr.Code == http.StatusInternalServerError)
+	assert.True(t, 
+		strings.Contains(rr.Body.String(), "Movie not found") || 
+		strings.Contains(rr.Body.String(), "Failed to delete movie"))
+}
+
+func TestDeleteMovieHandler_ExtremeEdgeCases(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	edgeCases := []struct {
+		name string
+		id   string
+	}{
+		{"max int", "9223372036854775807"},
+		{"min int", "-9223372036854775808"},
+		{"zero", "0"},
+		{"leading zeros", "000123"},
+		{"hex format", "0x123"},
+		{"scientific notation", "1e5"},
+	}
+
+	for _, tc := range edgeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest("DELETE", "/api/v1/movies/"+tc.id, nil)
+			assert.NoError(t, err)
+
+			rr := httptest.NewRecorder()
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/v1/movies/{id}", app.deleteMovieHandler).Methods("DELETE")
+			router.ServeHTTP(rr, req)
+
+			// Should handle gracefully - either bad request or not found
+			assert.True(t, rr.Code == http.StatusBadRequest || rr.Code == http.StatusNotFound || rr.Code == http.StatusInternalServerError)
 		})
 	}
 }

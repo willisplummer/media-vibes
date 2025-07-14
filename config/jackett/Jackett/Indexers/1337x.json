@@ -1,0 +1,73 @@
+[
+  {
+    "id": "sitelink",
+    "type": "inputstring",
+    "name": "Site Link",
+    "value": "https://1337x.to/"
+  },
+  {
+    "id": "cookieheader",
+    "type": "hiddendata",
+    "name": "CookieHeader",
+    "value": "cf_clearance=L0oNyK1lvaUg9WMIJvrYkxkPd25xp8IjvYkM9gvXOkg-1752445326-1.2.1.1-rYptcAaJ.9zNAN5JJzz.DL_6MDro1Tez917tMXq1Lq0EJqCdIekCwlZcw6le7rQSCvP_SohCJMkyVgKFtP0IcQXu2t5ruam2UcbGXiJEkI3pk_VCwyzfRrggnSbxPd5wb1CDnHVI44G_RB5sXyYhgJk7NSAcr2zS0APKpi6h2fU4xXxNDB4PE.SS.bFdfy2IbFALvSD_CPl7i8kOmTYdxcuYCXJ6kugqEZCnvsQEhZBP4VDFfMW9u2tOtqbmT0gq; cf_chl_rc_ni=2"
+  },
+  {
+    "id": "lasterror",
+    "type": "hiddendata",
+    "name": "LastError",
+    "value": null
+  },
+  {
+    "id": "filterbyuploader",
+    "type": "inputstring",
+    "name": "Filter by Uploader",
+    "value": null
+  },
+  {
+    "id": "downloadlink",
+    "type": "inputselect",
+    "name": "Download link",
+    "value": "http://itorrents.org/",
+    "options": {
+      "http://itorrents.org/": "iTorrents.org",
+      "magnet:": "magnet"
+    }
+  },
+  {
+    "id": "downloadlink(fallback)",
+    "type": "inputselect",
+    "name": "Download link (fallback)",
+    "value": "magnet:",
+    "options": {
+      "http://itorrents.org/": "iTorrents.org",
+      "magnet:": "magnet"
+    }
+  },
+  {
+    "id": "sortrequestedfromsite",
+    "type": "inputselect",
+    "name": "Sort requested from site",
+    "value": "time",
+    "options": {
+      "time": "created",
+      "seeders": "seeders",
+      "size": "size"
+    }
+  },
+  {
+    "id": "orderrequestedfromsite",
+    "type": "inputselect",
+    "name": "Order requested from site",
+    "value": "desc",
+    "options": {
+      "desc": "desc",
+      "asc": "asc"
+    }
+  },
+  {
+    "id": "tags",
+    "type": "inputtags",
+    "name": "Tags",
+    "value": ""
+  }
+]

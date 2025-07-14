@@ -47,6 +47,7 @@ func (db *DB) InitSchema() error {
 		file_path TEXT,
 		file_size INTEGER,
 		quality TEXT,
+		torrent_hash TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -56,11 +57,34 @@ func (db *DB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_movies_year ON movies(year);
 	CREATE INDEX IF NOT EXISTS idx_movies_imdb_id ON movies(imdb_id);
 	CREATE INDEX IF NOT EXISTS idx_movies_tmdb_id ON movies(tmdb_id);
+	CREATE INDEX IF NOT EXISTS idx_movies_torrent_hash ON movies(torrent_hash);
+
+	CREATE TABLE IF NOT EXISTS movie_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		movie_id INTEGER NOT NULL,
+		type TEXT NOT NULL,
+		message TEXT NOT NULL,
+		details TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (movie_id) REFERENCES movies (id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_movie_events_movie_id ON movie_events(movie_id);
+	CREATE INDEX IF NOT EXISTS idx_movie_events_type ON movie_events(type);
+	CREATE INDEX IF NOT EXISTS idx_movie_events_created_at ON movie_events(created_at);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
+
+	// Add migration for existing databases
+	migration := `
+	ALTER TABLE movies ADD COLUMN torrent_hash TEXT;
+	`
+	
+	// Try to add the column, ignore error if it already exists
+	db.Exec(migration)
 
 	log.Println("Database schema initialized")
 	return nil

@@ -46,7 +46,7 @@ func NewJackettService(baseURL, apiKey string) *JackettService {
 func (j *JackettService) Search(query string, category string) ([]JackettSearchResult, error) {
 	params := url.Values{}
 	params.Set("apikey", j.APIKey)
-	params.Set("t", "search")
+	params.Set("t", "movie") // Use movie search mode for better results
 	params.Set("q", query)
 	if category != "" {
 		params.Set("cat", category)
@@ -54,6 +54,54 @@ func (j *JackettService) Search(query string, category string) ([]JackettSearchR
 
 	searchURL := fmt.Sprintf("%s/api/v2.0/indexers/all/results?%s", j.BaseURL, params.Encode())
 
+	log.Printf("Jackett request URL: %s", searchURL)
+	resp, err := j.Client.Get(searchURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search jackett: %w", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Failed to close response body: %v", err)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("jackett search failed with status: %d", resp.StatusCode)
+	}
+
+	var jackettResp JackettResponse
+	if err := json.NewDecoder(resp.Body).Decode(&jackettResp); err != nil {
+		return nil, fmt.Errorf("failed to decode jackett response: %w", err)
+	}
+
+	return jackettResp.Results, nil
+}
+
+// SearchMovies performs a movie-specific search with additional parameters
+func (j *JackettService) SearchMovies(title string, year int, imdbID string, tmdbID int, category string) ([]JackettSearchResult, error) {
+	params := url.Values{}
+	params.Set("apikey", j.APIKey)
+	params.Set("t", "movie")
+
+	if title != "" {
+		params.Set("q", title)
+	}
+	if year > 0 {
+		params.Set("year", fmt.Sprintf("%d", year))
+	}
+	if imdbID != "" {
+		params.Set("imdbid", imdbID)
+	}
+	if tmdbID > 0 {
+		params.Set("tmdbid", fmt.Sprintf("%d", tmdbID))
+	}
+	if category != "" {
+		params.Set("cat", category)
+	}
+
+	searchURL := fmt.Sprintf("%s/api/v2.0/indexers/all/results?%s", j.BaseURL, params.Encode())
+
+	log.Printf("Jackett movie search URL: %s", searchURL)
 	resp, err := j.Client.Get(searchURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search jackett: %w", err)
